@@ -246,7 +246,7 @@ async def process_workqueue(workqueue: Workqueue):
                         if item["label"] in generelle_oplysninger_felter:
                             if item.get("value") is None or str(item.get("value")).strip() == "":
                                 continue
-                            
+
                             besked_tekst += f"{item['label']}:\n"                            
                             besked_tekst += item['value'].replace("\n", "\r\n").strip() + "\r\n"
                             formatted_date = _format_date_as_ddmmyyyy(skema['lastStateChange'])
@@ -274,9 +274,11 @@ async def process_workqueue(workqueue: Workqueue):
 
                     for relateret_aktivitet in relaterede_aktiviteter:
                         for aktivitet in relateret_aktivitet.get("citizenActivitiesGroups", []).get("activities", []):                            
-                            if aktivitet.get("activityReference", {}).get("name") in godkendte_indsatser:
-                                
+                            if aktivitet.get("activityReference", {}).get("name") in godkendte_indsatser:                                
                                 for item in skema["items"]:
+                                    if item.get("value") is None or str(item.get("value")).strip() == "":
+                                        continue
+                                    
                                     label_tekst = (item.get("label") or "").strip()
                                     value_tekst = str(item.get("value") or "").replace("\n", "\r\n").strip()
                                     besked_tekst += f"\r\n{label_tekst}: {value_tekst}\r\n"
@@ -286,7 +288,10 @@ async def process_workqueue(workqueue: Workqueue):
                 if len(genoplivnings_skemaer) > 0:
                     skema = nexus.hent_fra_reference(genoplivnings_skemaer[0])
                     for item in skema["items"]:
-                        if item["label"] == "Tekst":
+                        if item.get("value") is None or str(item.get("value")).strip() == "":
+                                continue
+                        
+                        if item["label"] == "Tekst":                            
                             tekst = str(item.get("value") or "").replace("\n", "\r\n").strip()
                             if tekst:
                                 besked_tekst += f"{tekst}\r\n"
