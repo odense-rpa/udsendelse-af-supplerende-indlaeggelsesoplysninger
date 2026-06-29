@@ -12,7 +12,6 @@ from automation_server_client import (
 )
 from datetime import datetime, timedelta, timezone
 from kmd_nexus_client import NexusClientManager
-from kmd_nexus_client.tree_helpers import filter_by_path
 from process.nexus_service import NexusService
 from odk_tools.tracking import Tracker
 
@@ -22,7 +21,9 @@ proces_navn = "Udsendelse af supplerende indlæggelsesoplysninger"
 
 
 def _get_value_case_insensitive(payload: dict, key: str):
-        return next((value for k, value in payload.items() if k.lower() == key.lower()), None)
+    return next(
+        (value for k, value in payload.items() if k.lower() == key.lower()), None
+    )
 
 
 def _parse_date(value):
@@ -41,16 +42,17 @@ def _parse_date(value):
                 return None
     return None
 
+
 async def populate_queue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
     aktivitetsliste = nexus.aktivitetslister.hent_aktivitetsliste(
-        navn="...systembeskeder MedCom - indlæggelsesrapport", 
+        navn="...systembeskeder MedCom - indlæggelsesrapport",
         organisation=None,
         medarbejder=None,
-        antal_sider=30
+        antal_sider=30,
     )
 
-    cutoff_date = (datetime.now(timezone.utc) - timedelta(days=3)).date()    
+    cutoff_date = (datetime.now(timezone.utc) - timedelta(days=3)).date()
 
     filtered_aktivitetsliste = []
     for aktivitet in aktivitetsliste or []:
@@ -75,7 +77,6 @@ async def populate_queue(workqueue: Workqueue):
                 continue
 
             workqueue.add_item(aktivitet, str(aktivitet["id"]))
-   
 
 
 async def process_workqueue(workqueue: Workqueue):
@@ -85,8 +86,8 @@ async def process_workqueue(workqueue: Workqueue):
     for item in workqueue:
         with item:
             data = item.data  # Item data deserialized from json as dict
- 
-            try:                
+
+            try:
                 besked_reference = nexus.hent_fra_reference(data)
                 besked = nexus.medcom.hent_besked(besked_reference)
 
@@ -94,29 +95,37 @@ async def process_workqueue(workqueue: Workqueue):
                     continue
 
                 xml = nexus.medcom.dekoder_medcom_xml(besked)
-                modtager = nexus_service._extract_receiver_json(xml).get("EANIdentifier")
+                modtager = nexus_service._extract_receiver_json(xml).get(
+                    "EANIdentifier"
+                )
 
                 if modtager is None:
-                    continue                
+                    continue
 
                 # Hent generelle oplysninger
-                borger = nexus.borgere.hent_borger(data["patients"][0]["patientIdentifier"]["identifier"])
+                borger = nexus.borgere.hent_borger(
+                    data["patients"][0]["patientIdentifier"]["identifier"]
+                )
 
                 if borger is None:
                     continue
 
                 pathway = nexus.borgere.hent_visning(borger=borger)
-                
+
                 # Hent generelle oplysninger og genoplivningsoplysninger
-                tekst, genoplivnings_skemaer = nexus_service.hent_generelle_oplysninger(pathway)
+                tekst, genoplivnings_skemaer = nexus_service.hent_generelle_oplysninger(
+                    pathway
+                )
                 besked_tekst += tekst
 
                 # Hent handlingsanvisninger
                 tekst = nexus_service.hent_handlingsanvisninger(pathway)
-                besked_tekst += tekst                
-                
+                besked_tekst += tekst
+
                 # Hent oplysninger om genoplivning
-                tekst = nexus_service.hent_oplysninger_om_genoplivning(genoplivnings_skemaer)
+                tekst = nexus_service.hent_oplysninger_om_genoplivning(
+                    genoplivnings_skemaer
+                )
                 besked_tekst += tekst
 
                 # Send besked
@@ -147,7 +156,7 @@ if __name__ == "__main__":
         client_id=nexus_credential.username,
         client_secret=nexus_credential.password,
         instance=nexus_credential.data["instance"],
-    )    
+    )
 
     tracker = Tracker(
         username=tracking_credential.username, password=tracking_credential.password
