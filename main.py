@@ -1,5 +1,7 @@
+import argparse
 import asyncio
 import logging
+import os
 import sys
 
 
@@ -14,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from kmd_nexus_client import NexusClientManager
 from process.nexus_service import NexusService
 from odk_tools.tracking import Tracker
+from process.config import load_excel_mapping
 
 nexus: NexusClientManager
 tracker: Tracker
@@ -45,6 +48,7 @@ def _parse_date(value):
 
 async def populate_queue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
+
     aktivitetsliste = nexus.aktivitetslister.hent_aktivitetsliste(
         navn="...systembeskeder MedCom - indlæggelsesrapport",
         organisation=None,
@@ -81,7 +85,6 @@ async def populate_queue(workqueue: Workqueue):
 
 async def process_workqueue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
-    besked_tekst = ""
 
     for item in workqueue:
         with item:
@@ -113,27 +116,27 @@ async def process_workqueue(workqueue: Workqueue):
                 pathway = nexus.borgere.hent_visning(borger=borger)
 
                 # Hent generelle oplysninger og genoplivningsoplysninger
-                tekst, genoplivnings_skemaer = nexus_service.hent_generelle_oplysninger(
-                    pathway
+                tekst, genoplivnings_skemaer, cfs_skemaer = (
+                    nexus_service.hent_generelle_oplysninger(pathway)
                 )
-                besked_tekst += tekst
 
                 # Hent handlingsanvisninger
-                tekst = nexus_service.hent_handlingsanvisninger(pathway)
-                besked_tekst += tekst
+                tekst += nexus_service.hent_handlingsanvisninger(pathway)
 
                 # Hent oplysninger om genoplivning
-                tekst = nexus_service.hent_oplysninger_om_genoplivning(
+                tekst += nexus_service.hent_oplysninger_om_genoplivning(
                     genoplivnings_skemaer
                 )
-                besked_tekst += tekst
+
+                # Hent CFS skema oplysninger
+                tekst += nexus_service.hent_cfs_oplysninger(cfs_skemaer)
 
                 # Send besked
-                if len(besked_tekst.strip()) == 0:
+                if len(tekst.strip()) == 0:
                     tracker.track_partial_task(proces_navn)
                     continue
 
-                nexus_service.send_besked(besked_tekst, borger, modtager, proces_navn)
+                nexus_service.send_besked(tekst, borger, modtager, proces_navn)
 
             except WorkItemError as e:
                 # A WorkItemError represents a soft error that indicates the item should be passed to manual processing or a business logic fault
@@ -163,6 +166,28 @@ if __name__ == "__main__":
     )
 
     nexus_service = NexusService(nexus=nexus, tracker=tracker)
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description=proces_navn)
+    parser.add_argument(
+        "--excel-file",
+        default="./Regler.xlsx",
+        help="Path to the Excel file containing mapping data (default: ./Regler.xlsx)",
+    )
+    parser.add_argument(
+        "--queue",
+        action="store_true",
+        help="Populate the queue with test data and exit",
+    )
+
+    args = parser.parse_args()
+
+    # Validate Excel file exists
+    if not os.path.isfile(args.excel_file):
+        raise FileNotFoundError(f"Excel file not found: {args.excel_file}")
+
+    # Load excel mapping data once on startup
+    load_excel_mapping(args.excel_file)
 
     # Queue management
     if "--queue" in sys.argv:

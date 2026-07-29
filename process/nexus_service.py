@@ -4,6 +4,8 @@ from kmd_nexus_client.tree_helpers import (
     filter_by_path,
 )
 from odk_tools.tracking import Tracker
+from process.config import get_excel_mapping
+
 import xml.etree.ElementTree as ET
 
 
@@ -14,60 +16,6 @@ generelle_oplysninger_felter = [
     "Bolig",
     "Netværk",
     "Ønsker for den sidste tid",
-]
-godkendte_indsatser = [
-    "Dag - Administrative og strukturelle opgaver (kompenserende støtte)",
-    "Dag - Indtagelse af mad og drikke (kompenserende støtte)",
-    "Dag - Mobilitet (kompenserende støtte)",
-    "Dag - Personlig hygiejne (kompenserende støtte)",
-    "Dag - Udskillelser (kompenserende støtte)",
-    "Aften - Administrative og strukturelle opgaver (kompenserende støtte)",
-    "Aften - Indtagelse af mad og drikke (kompenserende støtte)",
-    "Aften - Mobilitet (kompenserende støtte)",
-    "Aften - Personlig hygiejne (kompenserende støtte)",
-    "Aften - Udskillelser (kompenserende støtte)",
-    "Nat - Administrative og strukturelle opgaver (kompenserende støtte)",
-    "Nat - Indtagelse af mad og drikke (kompenserende støtte)",
-    "Nat - Mobilitet (kompenserende støtte)",
-    "Nat - Personlig hygiejne (kompenserende støtte)",
-    "Nat - Udskillelser (kompenserende støtte)",
-    "Dag - Administrative og strukturelle opgaver (tidsafgrænset rehabiliteringsforløb)",
-    "Dag - Indtagelse af mad og drikke (tidsafgrænset rehabiliteringsforløb)",
-    "Dag - Mobilitet (tidsafgrænset rehabiliteringsforløb)",
-    "Dag - Personlig hygiejne (tidsafgrænset rehabiliteringsforløb)",
-    "Dag - Udskillelser (tidsafgrænset rehabiliteringsforløb)",
-    "Aften - Administrative og strukturelle opgaver (tidsafgrænset rehabiliteringsforløb)",
-    "Aften - Indtagelse af mad og drikke (tidsafgrænset rehabiliteringsforløb)",
-    "Aften - Mobilitet (tidsafgrænset rehabiliteringsforløb)",
-    "Aften - Personlig hygiejne (tidsafgrænset rehabiliteringsforløb)",
-    "Aften - Udskillelser (tidsafgrænset rehabiliteringsforløb)",
-    "Nat - Administrative og strukturelle opgaver (tidsafgrænset rehabiliteringsforløb)",
-    "Nat - Indtagelse af mad og drikke (tidsafgrænset rehabiliteringsforløb)",
-    "Nat - Mobilitet (tidsafgrænset rehabiliteringsforløb)",
-    "Dag - Administrative og strukturelle opgaver - ÆL § 9",
-    "Dag - Indtagelse af mad og drikke - ÆL § 9",
-    "Nat - Personlig hygiejne (tidsafgrænset rehabiliteringsforløb)",
-    "Nat - Udskillelser (tidsafgrænset rehabiliteringsforløb)",
-    "Dag - Mobilitet - ÆL § 9",
-    "Dag - Personlig hygiejne - ÆL § 9",
-    "Dag - Udskillelser - ÆL § 9",
-    "Dag - Tilberede og anrette mad - ÆL § 9",
-    "Dag - Bestillling af varer og sætte varer på plads - ÆL § 9",
-    "Aften - Administrative og strukturelle opgaver - ÆL § 9",
-    "Aften - Indtagelse af mad og drikke - ÆL § 9",
-    "Aften - Mobilitet  - ÆL § 9",
-    "Aften - Personlig hygiejne - ÆL § 9",
-    "Aften - Udskillelser - ÆL § 9",
-    "Aften - Tilberede og anrette mad - ÆL § 9",
-    "Nat - Administrative og strukturelle opgaver - ÆL § 9",
-    "Nat - Indtagelse af mad og drikke - ÆL § 9",
-    "Nat - Mobilitet - ÆL § 9",
-    "Nat - Personlig hygiejne  - ÆL § 9",
-    "Nat - Udskillelser  - ÆL § 9",
-    "Dag - Tilberede/anrette mad (tidsafgrænset rehabiliteringsforløb)",
-    "Aften - Tilberede/anrette mad (tidsafgrænset rehabiliteringsforløb)",
-    "Dag - Tilberede og anrette mad (kompenserende støtte)",
-    "Aften - Tilberede og anrette mad (kompenserende støtte)",
 ]
 
 
@@ -122,7 +70,7 @@ class NexusService:
             else:
                 return str(value)
 
-            return dt.strftime("%d/%m/%Y")
+            return dt.strftime("%d-%m-%Y")
         except Exception:
             return str(value)
 
@@ -176,6 +124,14 @@ class NexusService:
             == "Fravalg af genoplivningsforsøg"
         ]
 
+        cfs_skemaer = [
+            ref
+            for ref in aktiviteter
+            if ref.get("patientActivityType") == "formData"
+            and ref.get("formDefinition", {}).get("title")
+            == "Clinical Frailty Scale (CFS) v2"
+        ]
+
         for skema_reference in generelle_skemaer:
             skema = self.nexus.hent_fra_reference(skema_reference)
             for item in skema["items"]:
@@ -193,7 +149,7 @@ class NexusService:
                     )
                     tekst += f"Sidst opd. {formatted_date}\r\n\r\n"
 
-        return tekst, genoplivnings_skemaer
+        return tekst, genoplivnings_skemaer, cfs_skemaer
 
     def hent_handlingsanvisninger(self, pathway):
         """
@@ -205,8 +161,14 @@ class NexusService:
         Returns:
             str: Formatted text with action guidelines
         """
-        tekst = ""
 
+        godkendte_indsatser = get_excel_mapping()
+        godkendte_indsatsnavne = {
+            str(row.get("Indsatsnavn") or "").strip()
+            for row in godkendte_indsatser
+            if str(row.get("Indsatsnavn") or "").strip()
+        }
+        tekst = ""
         referencer = self.nexus.borgere.hent_referencer(pathway)
 
         skema_referencer = filter_by_path(
@@ -218,9 +180,7 @@ class NexusService:
         skema_referencer = [
             ref
             for ref in skema_referencer
-            if ref.get("patientActivityType") == "formData"
-            and "Handlingsanvisning"
-            in (ref.get("formDefinition", {}).get("title", "") or "")
+            if "Handlingsanvisning" in (ref.get("name", {}) or "")
             and ref.get("workflowState", {}).get("name") == "Aktivt"
         ]
 
@@ -231,27 +191,32 @@ class NexusService:
             ).json()
 
             for relateret_aktivitet in relaterede_aktiviteter:
-                for aktivitet in relateret_aktivitet.get(
+                citizen_activities_groups = relateret_aktivitet.get(
                     "citizenActivitiesGroups", []
-                ).get("activities", []):
-                    if (
-                        aktivitet.get("activityReference", {}).get("name")
-                        in godkendte_indsatser
-                    ):
-                        for item in skema["items"]:
-                            if (
-                                item.get("value") is None
-                                or str(item.get("value")).strip() == ""
-                            ):
-                                continue
+                )
+                for aktiviteteter in citizen_activities_groups:
+                    aktiviteter = aktiviteteter.get("activities", {})
+                    for aktivitet in aktiviteter:
+                        if (
+                            aktivitet.get("activityReference", {}).get("name")
+                            in godkendte_indsatsnavne
+                        ):
+                            for item in skema["items"]:
+                                if (
+                                    item.get("value") is None
+                                    or item.get("type") == "radioGroup"
+                                    or str(item.get("value")).strip() == ""
+                                    or item.get("label") == "Uddelegeret til?"
+                                ):
+                                    continue
 
-                            label_tekst = (item.get("label") or "").strip()
-                            value_tekst = (
-                                str(item.get("value") or "")
-                                .replace("\n", "\r\n")
-                                .strip()
-                            )
-                            tekst += f"\r\n{label_tekst}: {value_tekst}\r\n"
+                                label_tekst = (item.get("label") or "").strip()
+                                value_tekst = (
+                                    str(item.get("value") or "")
+                                    .replace("\n", "\r\n")
+                                    .strip()
+                                )
+                                tekst += f"\r\n{label_tekst}: {value_tekst}\r\n"
 
         return tekst
 
@@ -265,23 +230,51 @@ class NexusService:
         Returns:
             str: Formatted text with resuscitation information
         """
+
         tekst = ""
 
         if len(genoplivnings_skemaer) > 0:
+            tekst = "Beslutning om fravalg af genoplivning:\r\n"
             skema = self.nexus.hent_fra_reference(genoplivnings_skemaer[0])
             for item in skema["items"]:
                 if item.get("value") is None or str(item.get("value")).strip() == "":
                     continue
 
-                if item["label"] == "Tekst":
+                if item["label"] == "Beslutning om fravalg af genoplivningsforsøg":
                     item_tekst = (
                         str(item.get("value") or "").replace("\n", "\r\n").strip()
                     )
                     if item_tekst:
                         tekst += f"{item_tekst}\r\n"
-                elif item["label"] == "Dato":
+                elif (
+                    item["label"]
+                    == "Dato for modtagelse af beslutning om fravalg af genoplivningsforsøg"
+                ):
                     formatted_date = self._format_date_as_ddmmyyyy(item["value"])
                     tekst += f"Dato: {formatted_date}\r\n"
+
+        return tekst
+
+    def hent_cfs_oplysninger(self, cfs_skemaer):
+        """
+        Extract Clinical Frailty Scale (CFS) information from schemas and return formatted text.
+
+        Args:
+            cfs_skemaer: List of CFS schemas
+
+        Returns:
+            str: Formatted text with CFS information
+        """
+        tekst = ""
+
+        if len(cfs_skemaer) > 0:
+            skema = self.nexus.hent_fra_reference(cfs_skemaer[0])
+            for item in skema.get("items", []):
+                value = item.get("value")
+                if isinstance(value, list) and len(value) > 0:
+                    label = (item.get("label") or "").strip()
+                    if label:
+                        return f"\r\nCFS: {label}\r\n"
 
         return tekst
 
@@ -300,7 +293,7 @@ class NexusService:
 
         self.nexus.medcom.send_besked(
             borger=borger,
-            fra=afsender,
+            fra="Odense Kommune - EAN:5790000121441 - Ørbækvej 100B, 5220 Odense SØ",
             til=modtager,
             tekst=endelig_tekst,
             emne="Supplerende indlæggelsesoplysninger",
