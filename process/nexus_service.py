@@ -191,6 +191,9 @@ class NexusService:
             ).json()
 
             for relateret_aktivitet in relaterede_aktiviteter:
+                if relateret_aktivitet.get("groupName") != "Indsatser":
+                    continue
+                
                 citizen_activities_groups = relateret_aktivitet.get(
                     "citizenActivitiesGroups", []
                 )
