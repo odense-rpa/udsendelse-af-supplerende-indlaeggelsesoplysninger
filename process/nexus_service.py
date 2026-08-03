@@ -220,6 +220,8 @@ class NexusService:
                                     .strip()
                                 )
                                 tekst += f"\r\n{label_tekst}: {value_tekst}\r\n"
+                            break
+
 
         return tekst
 
